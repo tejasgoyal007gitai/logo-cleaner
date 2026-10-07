@@ -1,0 +1,655 @@
+<title>Floor Plan Cleaner</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: drafting-table tool — plan list left, plan on a gridded sheet in the middle, steps + controls right; stacks on phones. */
+:root{
+  --bg:#e9edf1; --surface:#ffffff; --sheet:#f6f8fa; --grid:#dfe5eb;
+  --ink:#14202b; --muted:#5a6774; --line:#cfd6dd;
+  --accent:#2649c4; --accent-ink:#ffffff; --accent-soft:#e3e9fb;
+  --mask:#ff2d7a; --ok:#1d7a4a; --ok-soft:#dff2e7; --warn:#9a5b00; --warn-soft:#fbefd9;
+  --display:"Archivo","Helvetica Neue",Arial,sans-serif;
+  --body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0e1318; --surface:#161d24; --sheet:#11171d; --grid:#1d252d;
+  --ink:#e4e9ee; --muted:#93a0ac; --line:#2a333d;
+  --accent:#7d9bff; --accent-ink:#0b1020; --accent-soft:#1d2645;
+  --ok:#5fcf92; --ok-soft:#14301f; --warn:#f0b65a; --warn-soft:#33260f; color-scheme:dark;}}
+:root[data-theme="dark"]{
+  --bg:#0e1318; --surface:#161d24; --sheet:#11171d; --grid:#1d252d;
+  --ink:#e4e9ee; --muted:#93a0ac; --line:#2a333d;
+  --accent:#7d9bff; --accent-ink:#0b1020; --accent-soft:#1d2645;
+  --ok:#5fcf92; --ok-soft:#14301f; --warn:#f0b65a; --warn-soft:#33260f; color-scheme:dark;}
+[hidden]{display:none!important}
+body{background:var(--bg);color:var(--ink);font:14px/1.5 var(--body);margin:0}
+*{box-sizing:border-box}
+button,input{font:inherit;color:inherit}
+.app{display:flex;flex-direction:column;padding:16px;gap:14px;max-width:1500px;margin:0 auto}
+header{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.brand{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+h1{font:800 22px/1.1 var(--display);letter-spacing:-.01em;margin:0;text-wrap:balance}
+.tag{font:500 11px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.spacer{flex:1}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:8px 12px;cursor:pointer;font-weight:500;white-space:nowrap}
+.btn:hover{border-color:var(--muted)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.btn.primary:hover:not(:disabled){filter:brightness(1.08)}
+.btn:focus-visible,.seg button:focus-visible,.file:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.grid{display:grid;grid-template-columns:210px minmax(0,1fr) 300px;gap:14px}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px;min-width:0}
+.label{font:500 11px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0 0 8px}
+.files{display:flex;flex-direction:column;gap:8px}
+.filelist{display:flex;flex-direction:column;gap:6px;overflow:auto;max-height:62vh}
+.file{display:grid;grid-template-columns:44px minmax(0,1fr);gap:8px;align-items:center;padding:6px;border:1px solid transparent;border-radius:8px;background:none;text-align:left;cursor:pointer;width:100%}
+.file:hover{background:var(--sheet)}
+.file.on{border-color:var(--accent);background:var(--accent-soft)}
+.file img{width:44px;height:34px;object-fit:cover;border-radius:4px;border:1px solid var(--line);background:#fff}
+.fname{font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fmeta{font:400 11px var(--mono);color:var(--muted);display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.chip{font:500 10px var(--mono);letter-spacing:.05em;text-transform:uppercase;padding:1px 6px;border-radius:99px}
+.chip.ok{background:var(--ok-soft);color:var(--ok)}
+.chip.ex{background:var(--accent-soft);color:var(--accent)}
+.chip.warn{background:var(--warn-soft);color:var(--warn)}
+.drop{border:1.5px dashed var(--line);border-radius:10px;padding:14px 10px;text-align:center;color:var(--muted);font-size:12.5px;cursor:pointer;background:none;width:100%}
+.drop b{color:var(--ink);font-size:13.5px}
+.drop:hover,.drop.over{border-color:var(--accent);color:var(--ink)}
+.stagewrap{display:flex;flex-direction:column;gap:10px;min-width:0}
+.toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--surface)}
+.seg button{border:0;background:none;padding:7px 12px;cursor:pointer;font-weight:500}
+.seg button+button{border-left:1px solid var(--line)}
+.seg button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink)}
+.stage{position:relative;height:min(70vh,640px);min-height:340px;border:1px solid var(--line);border-radius:12px;overflow:auto;
+  background-color:var(--sheet);
+  background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px);
+  background-size:24px 24px;padding:16px}
+.canvaswrap{position:relative;margin:auto;box-shadow:0 1px 3px rgba(0,0,0,.18);touch-action:none;background:#fff}
+.canvaswrap canvas{display:block;width:100%;height:100%}
+#mask{position:absolute;inset:0;opacity:.45;cursor:crosshair;touch-action:none}
+.boxpreview{position:absolute;border:2px dashed var(--mask);background:rgba(255,45,122,.15);pointer-events:none}
+.brushcursor{position:absolute;border:1.5px solid var(--mask);border-radius:50%;pointer-events:none;transform:translate(-50%,-50%);box-shadow:0 0 0 1px rgba(255,255,255,.7)}
+.status{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--surface);font-size:13px}
+.status.ok{border-color:var(--ok);background:var(--ok-soft)}
+.status.warn{border-color:var(--warn);background:var(--warn-soft)}
+.status b{display:block}
+.controls{display:flex;flex-direction:column;gap:18px}
+.steps{margin:0;padding:0 0 0 18px;display:flex;flex-direction:column;gap:6px;font-size:13px}
+.steps li::marker{font:600 12px var(--mono);color:var(--accent)}
+.logo-card{display:flex;gap:10px;align-items:center;padding:8px;border:1px solid var(--line);border-radius:8px}
+.logo-card img{max-width:90px;max-height:44px;border:1px solid var(--line);background:#fff}
+.logo-card .hint{flex:1;min-width:0}
+.modes{display:flex;flex-direction:column;gap:6px}
+.mode{display:grid;grid-template-columns:18px minmax(0,1fr);gap:8px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;cursor:pointer}
+.mode:has(input:checked){border-color:var(--accent);background:var(--accent-soft)}
+.mode input{margin:3px 0 0;accent-color:var(--accent)}
+.mode b{font-weight:600;display:block}
+.mode span{font-size:12px;color:var(--muted)}
+.slider{display:flex;flex-direction:column;gap:4px}
+.slider .row{display:flex;justify-content:space-between;font-size:12.5px}
+.slider output{font:500 12px var(--mono);font-variant-numeric:tabular-nums;color:var(--muted)}
+input[type=range]{width:100%;accent-color:var(--accent)}
+.stack{display:flex;flex-direction:column;gap:8px}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.check{display:flex;gap:8px;align-items:center;font-size:13px}
+.check input{accent-color:var(--accent)}
+.hint{font-size:12.5px;color:var(--muted)}
+details summary{cursor:pointer;font-weight:600;font-size:13px}
+details[open] summary{margin-bottom:10px}
+.toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:9px 14px;border-radius:8px;font-size:13px;max-width:calc(100% - 32px);z-index:20}
+.modal{position:fixed;inset:0;background:rgba(10,14,20,.6);display:grid;place-items:center;padding:16px;z-index:30}
+.modal .card{background:var(--surface);border-radius:12px;padding:16px;max-width:min(900px,100%);max-height:100%;overflow:auto;display:flex;flex-direction:column;gap:10px}
+.modal img{max-width:100%;border:1px solid var(--line);background:#fff}
+.err{background:#fde3e3;color:#7a1010;border:1px solid #e9a3a3;padding:10px 12px;border-radius:8px;font-size:13px}
+@media (max-width:1050px){
+  .grid{grid-template-columns:minmax(0,1fr) 290px}
+  .files{grid-column:1 / -1}
+  .filelist{flex-direction:row;max-height:none;overflow-x:auto}
+  .file{width:200px;flex:none}
+}
+@media (max-width:720px){
+  .grid{grid-template-columns:minmax(0,1fr)}
+  .stage{height:60vh;padding:10px}
+}
+</style>
+
+<div class="app">
+  <div class="err" id="err" hidden></div>
+  <header>
+    <div class="brand">
+      <h1>Floor Plan Cleaner</h1>
+      <span class="tag">Remove logos · keep the plan</span>
+    </div>
+    <div class="spacer"></div>
+    <button class="btn" id="dlAll" disabled>Download all (.zip)</button>
+    <button class="btn primary" id="dlOne" disabled>Download this plan</button>
+  </header>
+
+  <div class="grid">
+    <aside class="panel files">
+      <p class="label">Plans</p>
+      <button class="drop" id="drop" type="button"><b>Upload floor plans</b><br>or drop / paste them here<br><span style="font-size:11px">PNG · JPG · WEBP, several at once</span></button>
+      <input type="file" id="picker" accept="image/*" multiple hidden>
+      <div class="filelist" id="filelist"></div>
+    </aside>
+
+    <section class="stagewrap">
+      <div class="status" id="status"><div><b id="statusTitle">Try it on the example plan</b><span id="statusText" class="hint">Paint over a logo in pink, then press Remove logo.</span></div></div>
+      <div class="toolbar">
+        <div class="seg" role="group" aria-label="Selection tool">
+          <button id="tBrush" type="button" aria-pressed="true">Brush</button>
+          <button id="tBox" type="button" aria-pressed="false">Box</button>
+        </div>
+        <button class="btn" id="clearSel" type="button">Clear pink</button>
+        <div class="spacer"></div>
+        <div class="seg" role="group" aria-label="Zoom">
+          <button id="zOut" type="button" aria-label="Zoom out">−</button>
+          <button id="zFit" type="button">Fit</button>
+          <button id="zIn" type="button" aria-label="Zoom in">+</button>
+        </div>
+        <button class="btn" id="compare" type="button">Hold: before</button>
+      </div>
+      <div class="stage" id="stage">
+        <div class="canvaswrap" id="wrap">
+          <canvas id="main"></canvas>
+          <canvas id="mask"></canvas>
+          <div class="boxpreview" id="boxprev" hidden></div>
+          <div class="brushcursor" id="cursor" hidden></div>
+        </div>
+      </div>
+    </section>
+
+    <aside class="panel controls">
+      <div>
+        <p class="label">How it works</p>
+        <ol class="steps">
+          <li>Upload a plan.</li>
+          <li>Paint the logo pink (Brush or Box).</li>
+          <li>Press <b>Remove logo</b>, then download.</li>
+        </ol>
+        <p class="hint" style="margin:8px 0 0">After the first time, the tool remembers the logo and removes it from new uploads by itself.</p>
+      </div>
+
+      <div class="stack">
+        <button class="btn primary" id="apply" type="button" disabled>Remove logo</button>
+        <label class="check"><input type="checkbox" id="remember" checked> Remember this logo for next uploads</label>
+        <div class="row2">
+          <button class="btn" id="undo" type="button" disabled>Undo</button>
+          <button class="btn" id="reset" type="button" disabled>Start over</button>
+        </div>
+        <button class="btn" id="applyAll" type="button" disabled title="Uses the same pink area on every plan">Same spot on all plans</button>
+      </div>
+
+      <div id="logoBox" hidden>
+        <p class="label">Remembered logo</p>
+        <div class="logo-card"><img id="logoImg" alt="Remembered logo"><span class="hint">Removed automatically from new uploads.</span></div>
+        <div class="row2" style="margin-top:8px">
+          <button class="btn" id="rerun" type="button">Find it again</button>
+          <button class="btn" id="forget" type="button">Forget</button>
+        </div>
+      </div>
+
+      <div class="slider">
+        <div class="row"><label for="size">Brush size</label><output id="sizeOut">28 px</output></div>
+        <input type="range" id="size" min="6" max="140" value="28">
+      </div>
+
+      <details>
+        <summary>Fine-tune (if the result looks off)</summary>
+        <div class="stack">
+          <div class="modes">
+            <label class="mode"><input type="radio" name="mode" value="auto" checked><div><b>Automatic</b><span>Works out what's under the logo.</span></div></label>
+            <label class="mode"><input type="radio" name="mode" value="lines"><div><b>Watermark over plan lines</b><span>Erases the logo, keeps dark walls and text.</span></div></label>
+            <label class="mode"><input type="radio" name="mode" value="bg"><div><b>Logo on empty space</b><span>Fills with the background colour.</span></div></label>
+            <label class="mode"><input type="radio" name="mode" value="smart"><div><b>Logo over coloured areas</b><span>Rebuilds from the pixels around it.</span></div></label>
+          </div>
+          <div class="slider">
+            <div class="row"><label for="thresh">Line darkness to keep</label><output id="threshOut">150</output></div>
+            <input type="range" id="thresh" min="40" max="235" value="150">
+            <span class="hint">Raise if walls vanish. Lower if logo traces stay.</span>
+          </div>
+        </div>
+      </details>
+    </aside>
+  </div>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+<div class="modal" id="modal" hidden>
+  <div class="card">
+    <b>Save the cleaned plan</b>
+    <span class="hint">Right-click the image and choose “Save image as…”, or press and hold it on a phone.</span>
+    <img id="modalImg" alt="Cleaned floor plan">
+    <button class="btn" id="modalClose" type="button">Close</button>
+  </div>
+</div>
+
+<script>
+(function(){
+const $ = id => document.getElementById(id);
+function fail(e){ const el=$('err'); el.hidden=false; el.textContent='Something went wrong: '+(e&&e.message||e)+'. Reload the page and try again.'; console.error(e); }
+window.addEventListener('error',e=>fail(e.error||e.message));
+try{
+
+const main=$('main'), mask=$('mask'), wrap=$('wrap'), stage=$('stage');
+const mctx=main.getContext('2d',{willReadFrequently:true});
+const kctx=mask.getContext('2d',{willReadFrequently:true});
+const MASK_COLOR='#ff2d7a';
+let files=[], cur=-1, tool='brush', size=28, zoom=null, hasMask=false, logo=null;
+
+/* ---------- small helpers ---------- */
+let toastT;
+function toast(msg){ const t=$('toast'); t.textContent=msg; t.hidden=false; clearTimeout(toastT); toastT=setTimeout(()=>{t.hidden=true;},3000); }
+function setStatus(kind,title,text){ const s=$('status'); s.className='status'+(kind?' '+kind:''); $('statusTitle').textContent=title; $('statusText').textContent=text; }
+const store={ get(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }, set(k,v){ try{ localStorage.setItem(k,v); return true; }catch(e){ return false; } }, del(k){ try{ localStorage.removeItem(k); }catch(e){} } };
+const tick=()=>new Promise(r=>setTimeout(r,0));
+function canvasOf(img){ const c=document.createElement('canvas'); c.width=img.width; c.height=img.height; const x=c.getContext('2d',{willReadFrequently:true}); if(img instanceof ImageData) x.putImageData(img,0,0); else x.drawImage(img,0,0); return c; }
+function loadImg(src){ return new Promise((res,rej)=>{ const im=new Image(); im.onload=()=>res(im); im.onerror=rej; im.src=src; }); }
+
+/* ---------- downloads: Claude viewer capability, else normal link ---------- */
+let dlPromise=null;
+try{ if(window.claude && typeof window.claude.use==='function') dlPromise=Promise.resolve(window.claude.use('downloads')).catch(()=>null); }catch(e){ dlPromise=null; }
+async function saveBlob(blob, filename){
+  if(dlPromise){
+    const dl=await dlPromise;
+    if(dl){
+      try{ await dl.save({filename, data:blob}); toast('Saved '+filename); return; }
+      catch(e){ if(e&&e.code==='declined'){ toast('Download cancelled'); return; } if(e&&e.code==='rate_limited'){ toast('A save prompt is already open'); return; } }
+    }
+    return showModal(blob);
+  }
+  try{ const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=filename; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),4000); }
+  catch(e){ showModal(blob); }
+}
+function showModal(blob){
+  if(blob.type==='application/zip'){ toast('Zip saving isn’t available here. Download plans one by one.'); return; }
+  $('modalImg').src=URL.createObjectURL(blob); $('modal').hidden=false;
+}
+function closeModal(){ $('modal').hidden=true; }
+$('modalClose').onclick=closeModal;
+$('modal').addEventListener('click',e=>{ if(e.target===$('modal')) closeModal(); });
+document.addEventListener('keydown',e=>{ if(e.key==='Escape') closeModal(); });
+let zipLoad=null;
+function loadZip(){ if(window.JSZip) return Promise.resolve(true); if(!zipLoad) zipLoad=new Promise(res=>{ const s=document.createElement('script'); s.src='https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js'; s.onload=()=>res(!!window.JSZip); s.onerror=()=>res(false); document.head.appendChild(s); }); return zipLoad; }
+
+/* ---------- loading files ---------- */
+async function readFile(file){
+  let src;
+  try{ src=await createImageBitmap(file); }
+  catch(e){ src=await loadImg(URL.createObjectURL(file)).catch(()=>null); }
+  if(!src) return null;
+  const c=document.createElement('canvas'); c.width=src.width; c.height=src.height;
+  const x=c.getContext('2d',{willReadFrequently:true}); x.drawImage(src,0,0);
+  return x.getImageData(0,0,c.width,c.height);
+}
+async function addFiles(list){
+  list=[...list].filter(f=>f && f.type && f.type.startsWith('image/'));
+  if(!list.length) return;
+  setStatus('', 'Loading '+list.length+' plan'+(list.length>1?'s':'')+'…', '');
+  let firstNew=-1;
+  for(const file of list){
+    const data=await readFile(file);
+    if(!data){ toast('Could not open '+file.name); continue; }
+    const f={name:file.name||'pasted-plan.png', type:file.type, orig:data};
+    f.cur=new ImageData(new Uint8ClampedArray(data.data),data.width,data.height); f.history=[]; f.state='new';
+    const ex=files.findIndex(x=>x.example); if(ex>-1){ files.splice(ex,1); }
+    files.push(f); if(firstNew<0) firstNew=files.length-1;
+    if(logo){ await tick(); autoRemove(f); }
+  }
+  if(firstNew>-1) select(firstNew);
+  summarise();
+}
+$('picker').addEventListener('change',e=>{ addFiles(e.target.files); e.target.value=''; });
+const drop=$('drop');
+drop.addEventListener('click',()=>$('picker').click());
+document.addEventListener('dragover',e=>{ e.preventDefault(); drop.classList.add('over'); });
+document.addEventListener('dragleave',e=>{ drop.classList.remove('over'); });
+document.addEventListener('drop',e=>{ e.preventDefault(); drop.classList.remove('over'); if(e.dataTransfer) addFiles(e.dataTransfer.files); });
+document.addEventListener('paste',e=>{ if(e.clipboardData) addFiles(e.clipboardData.files); });
+
+/* ---------- list + selection ---------- */
+function thumbURL(f){
+  const s=88/f.cur.width, c=document.createElement('canvas'); c.width=88; c.height=Math.max(1,Math.round(f.cur.height*s));
+  c.getContext('2d').drawImage(canvasOf(f.cur),0,0,c.width,c.height); return c.toDataURL('image/png');
+}
+function renderList(){
+  const el=$('filelist'); el.innerHTML='';
+  files.forEach((f,i)=>{
+    const b=document.createElement('button'); b.type='button'; b.className='file'+(i===cur?' on':'');
+    const im=document.createElement('img'); im.alt=''; im.src=f.thumb||(f.thumb=thumbURL(f));
+    const d=document.createElement('div'); d.style.minWidth='0';
+    const n=document.createElement('div'); n.className='fname'; n.textContent=f.name;
+    const m=document.createElement('div'); m.className='fmeta'; m.append(f.orig.width+'×'+f.orig.height);
+    const chip=(cls,t)=>{ const c=document.createElement('span'); c.className='chip '+cls; c.textContent=t; m.append(c); };
+    if(f.example) chip('ex','Example');
+    else if(f.state==='auto') chip('ok','Auto-cleaned');
+    else if(f.history.length) chip('ok','Cleaned');
+    else if(f.state==='nomatch') chip('warn','Needs you');
+    d.append(n,m); b.append(im,d); b.addEventListener('click',()=>select(i)); el.append(b);
+  });
+  const f=files[cur];
+  $('dlOne').disabled=!f; $('dlAll').disabled=files.filter(x=>!x.example).length<2;
+  $('undo').disabled=!f||!f.history.length; $('reset').disabled=!f||!f.history.length;
+  renderButtons();
+}
+function renderButtons(){ $('apply').disabled=!hasMask; $('applyAll').disabled=!hasMask||files.length<2; }
+function select(i){
+  cur=i; const f=files[i]; if(!f){ renderList(); return; }
+  main.width=mask.width=f.cur.width; main.height=mask.height=f.cur.height;
+  mctx.putImageData(f.cur,0,0); clearMask(); zoom=null; layout(); renderList(); describe(f);
+}
+function describe(f){
+  if(f.example) return setStatus('','Try it on the example plan','Paint over “LOGO” or the blue watermark in pink, then press Remove logo. Upload your own plans on the left.');
+  if(f.state==='auto') return setStatus('ok','Logo removed automatically','Hold “before” to compare. Paint anything left over and press Remove logo again, or download.');
+  if(f.history.length) return setStatus('ok','Logo removed','Hold “before” to compare, then download. Undo if it doesn’t look right.');
+  if(f.state==='nomatch') return setStatus('warn','Couldn’t find the remembered logo here','Paint over the logo on this plan and press Remove logo.');
+  setStatus('','Paint over the logo','Use the Brush or drag a Box over the logo, then press Remove logo.');
+}
+function summarise(){
+  const real=files.filter(f=>!f.example); if(!logo||!real.length) return;
+  const a=real.filter(f=>f.state==='auto').length, n=real.filter(f=>f.state==='nomatch').length;
+  if(a||n) toast((a?a+' cleaned automatically':'')+(a&&n?' · ':'')+(n?n+' need you':''));
+}
+function refreshCurrent(){ const f=files[cur]; f.thumb=null; mctx.putImageData(f.cur,0,0); renderList(); describe(f); }
+
+/* ---------- zoom ---------- */
+function fitScale(){ const f=files[cur]; if(!f) return 1; return Math.min((stage.clientWidth-34)/f.cur.width,(stage.clientHeight-34)/f.cur.height,1); }
+function layout(){ const f=files[cur]; if(!f) return; const s=zoom??fitScale(); wrap.style.width=Math.max(20,Math.round(f.cur.width*s))+'px'; wrap.style.height=Math.max(20,Math.round(f.cur.height*s))+'px'; }
+window.addEventListener('resize',()=>{ if(zoom===null) layout(); });
+$('zFit').onclick=()=>{ zoom=null; layout(); };
+$('zIn').onclick=()=>{ zoom=Math.min(4,(zoom??fitScale())*1.25); layout(); };
+$('zOut').onclick=()=>{ zoom=Math.max(.05,(zoom??fitScale())/1.25); layout(); };
+
+/* ---------- painting the pink selection ---------- */
+function setTool(t){ tool=t; $('tBrush').setAttribute('aria-pressed',String(t==='brush')); $('tBox').setAttribute('aria-pressed',String(t==='box')); $('cursor').hidden=true; }
+$('tBrush').onclick=()=>setTool('brush'); $('tBox').onclick=()=>setTool('box');
+function setSize(v){ size=Math.max(6,Math.min(140,v)); $('size').value=size; $('sizeOut').textContent=size+' px'; }
+$('size').oninput=e=>setSize(+e.target.value);
+function clearMask(){ kctx.clearRect(0,0,mask.width,mask.height); hasMask=false; renderButtons(); }
+$('clearSel').onclick=clearMask;
+
+let drawing=false, last=null, boxStart=null;
+function pt(e){ const r=mask.getBoundingClientRect(); return {x:(e.clientX-r.left)*mask.width/r.width, y:(e.clientY-r.top)*mask.height/r.height, sx:e.clientX-r.left, sy:e.clientY-r.top, k:mask.width/r.width}; }
+function stroke(a,b){
+  kctx.strokeStyle=kctx.fillStyle=MASK_COLOR; kctx.lineCap='round'; kctx.lineJoin='round';
+  const w=size*a.k; kctx.lineWidth=w;
+  kctx.beginPath(); kctx.arc(b.x,b.y,w/2,0,Math.PI*2); kctx.fill();
+  kctx.beginPath(); kctx.moveTo(a.x,a.y); kctx.lineTo(b.x,b.y); kctx.stroke();
+}
+mask.addEventListener('pointerdown',e=>{
+  if(cur<0) return; e.preventDefault();
+  try{ mask.setPointerCapture(e.pointerId); }catch(_){}
+  drawing=true; const p=pt(e);
+  if(tool==='brush'){ stroke(p,p); last=p; hasMask=true; renderButtons(); } else boxStart=p;
+});
+mask.addEventListener('pointermove',e=>{
+  const p=pt(e), c=$('cursor');
+  if(tool==='brush' && e.pointerType!=='touch'){ c.hidden=false; c.style.left=p.sx+'px'; c.style.top=p.sy+'px'; c.style.width=c.style.height=size+'px'; }
+  if(!drawing) return;
+  if(tool==='brush'){ stroke(last,p); last=p; }
+  else{ const b=$('boxprev'); b.hidden=false; b.style.left=Math.min(p.sx,boxStart.sx)+'px'; b.style.top=Math.min(p.sy,boxStart.sy)+'px'; b.style.width=Math.abs(p.sx-boxStart.sx)+'px'; b.style.height=Math.abs(p.sy-boxStart.sy)+'px'; }
+});
+mask.addEventListener('pointerleave',()=>{ $('cursor').hidden=true; });
+function endDraw(e){
+  if(!drawing) return; drawing=false;
+  if(tool==='box'&&boxStart){
+    const p=pt(e), x=Math.min(p.x,boxStart.x), y=Math.min(p.y,boxStart.y), w=Math.abs(p.x-boxStart.x), h=Math.abs(p.y-boxStart.y);
+    if(w>2&&h>2){ kctx.fillStyle=MASK_COLOR; kctx.fillRect(x,y,w,h); hasMask=true; }
+    $('boxprev').hidden=true; boxStart=null;
+  }
+  renderButtons();
+}
+mask.addEventListener('pointerup',endDraw); mask.addEventListener('pointercancel',endDraw);
+
+/* ---------- settings ---------- */
+const modeVal=()=>document.querySelector('input[name=mode]:checked').value;
+$('thresh').oninput=e=>{ $('threshOut').textContent=e.target.value; };
+
+/* ---------- pixel work ---------- */
+function maskFrom(alpha,W,H,grow){
+  const raw=new Uint8Array(W*H); let x0=W,y0=H,x1=-1,y1=-1;
+  for(let y=0;y<H;y++) for(let x=0;x<W;x++){ if(alpha[(y*W+x)*4+3]>20){ raw[y*W+x]=1; if(x<x0)x0=x; if(x>x1)x1=x; if(y<y0)y0=y; if(y>y1)y1=y; } }
+  if(x1<0) return null;
+  const m=new Uint8Array(W*H), g=grow;
+  const bx0=Math.max(0,x0-g),by0=Math.max(0,y0-g),bx1=Math.min(W-1,x1+g),by1=Math.min(H-1,y1+g);
+  for(let y=by0;y<=by1;y++) for(let x=bx0;x<=bx1;x++){
+    let on=0;
+    for(let dy=-g;dy<=g&&!on;dy++){ const yy=y+dy; if(yy<0||yy>=H) continue; for(let dx=-g;dx<=g;dx++){ const xx=x+dx; if(xx>=0&&xx<W&&raw[yy*W+xx]){on=1;break;} } }
+    m[y*W+x]=on;
+  }
+  return {m,x0:bx0,y0:by0,x1:bx1,y1:by1};
+}
+function ringStats(d,mk,W,H){
+  // look at the plan just outside the selection: background colour + whether lines run through it
+  const pad=6, x0=Math.max(0,mk.x0-pad), y0=Math.max(0,mk.y0-pad), x1=Math.min(W-1,mk.x1+pad), y1=Math.min(H-1,mk.y1+pad);
+  const buckets=new Map(); let ring=0, dark=0;
+  for(let y=y0;y<=y1;y++) for(let x=x0;x<=x1;x++){
+    const p=y*W+x; if(mk.m[p]) continue; const i=p*4;
+    let near=false; for(let dy=-3;dy<=3&&!near;dy+=3) for(let dx=-3;dx<=3;dx+=3){ const xx=x+dx,yy=y+dy; if(xx>=0&&yy>=0&&xx<W&&yy<H&&mk.m[yy*W+xx]){near=true;break;} }
+    const key=(d[i]>>4)<<8|(d[i+1]>>4)<<4|(d[i+2]>>4);
+    let b=buckets.get(key); if(!b){ b=[0,0,0,0]; buckets.set(key,b); } b[0]+=d[i]; b[1]+=d[i+1]; b[2]+=d[i+2]; b[3]++;
+    if(near){ ring++; if(.299*d[i]+.587*d[i+1]+.114*d[i+2]<110) dark++; }
+  }
+  let best=null; for(const b of buckets.values()) if(!best||b[3]>best[3]) best=b;
+  const bg=best?[best[0]/best[3],best[1]/best[3],best[2]/best[3]].map(Math.round):[255,255,255];
+  return {bg, darkShare: ring? dark/ring : 0};
+}
+function fillBg(d,mk,W,bg){ for(let y=mk.y0;y<=mk.y1;y++) for(let x=mk.x0;x<=mk.x1;x++){ const p=y*W+x; if(!mk.m[p]) continue; const i=p*4; d[i]=bg[0]; d[i+1]=bg[1]; d[i+2]=bg[2]; d[i+3]=255; } }
+function isDark(d,i,thr){ const r=d[i],g=d[i+1],b=d[i+2]; return (.299*r+.587*g+.114*b)<=thr && (Math.max(r,g,b)-Math.min(r,g,b))<=70; }
+// connected=true: keep only dark pixels that continue a plan line from outside the selection (drops dark logo text)
+function keepLines(d,mk,W,H,bg,thr,connected){
+  let keep=null;
+  if(connected){
+    keep=new Uint8Array(W*H); const q=[];
+    for(let y=mk.y0;y<=mk.y1;y++) for(let x=mk.x0;x<=mk.x1;x++){
+      const p=y*W+x; if(!mk.m[p]||!isDark(d,p*4,thr)) continue;
+      let seed=false;
+      for(let dy=-1;dy<=1&&!seed;dy++) for(let dx=-1;dx<=1;dx++){ const xx=x+dx,yy=y+dy; if(xx<0||yy<0||xx>=W||yy>=H) continue; const n=yy*W+xx; if(!mk.m[n]&&isDark(d,n*4,thr)){seed=true;break;} }
+      if(seed){ keep[p]=1; q.push(p); }
+    }
+    for(let h=0;h<q.length;h++){ const p=q[h], x=p%W, y=(p-x)/W;
+      for(let dy=-1;dy<=1;dy++) for(let dx=-1;dx<=1;dx++){ const xx=x+dx,yy=y+dy; if(xx<0||yy<0||xx>=W||yy>=H) continue; const n=yy*W+xx; if(mk.m[n]&&!keep[n]&&isDark(d,n*4,thr)){ keep[n]=1; q.push(n); } } }
+  }
+  for(let y=mk.y0;y<=mk.y1;y++) for(let x=mk.x0;x<=mk.x1;x++){
+    const p=y*W+x; if(!mk.m[p]) continue; const i=p*4, r=d[i], g=d[i+1], b=d[i+2];
+    const sat=Math.max(r,g,b)-Math.min(r,g,b);
+    if(!isDark(d,i,thr) || (keep&&!keep[p])){ d[i]=bg[0]; d[i+1]=bg[1]; d[i+2]=bg[2]; }
+    else if(sat>25){ const v=Math.min(r,g,b); d[i]=d[i+1]=d[i+2]=v; }
+  }
+}
+function smartFill(d,mk,W,H){
+  const R=4, x0=Math.max(0,mk.x0-R), y0=Math.max(0,mk.y0-R), x1=Math.min(W-1,mk.x1+R), y1=Math.min(H-1,mk.y1+R);
+  const rw=x1-x0+1, rh=y1-y0+1, lay=new Int32Array(rw*rh), q=[];
+  for(let y=0;y<rh;y++) for(let x=0;x<rw;x++) lay[y*rw+x]= mk.m[(y+y0)*W+(x+x0)] ? -1 : 0;
+  for(let y=0;y<rh;y++) for(let x=0;x<rw;x++){
+    const li=y*rw+x; if(lay[li]!==-1) continue; let edge=false;
+    for(let dy=-1;dy<=1&&!edge;dy++) for(let dx=-1;dx<=1;dx++){ const xx=x+dx,yy=y+dy; if(xx>=0&&yy>=0&&xx<rw&&yy<rh&&lay[yy*rw+xx]===0){edge=true;break;} }
+    if(edge){ lay[li]=1; q.push(li); }
+  }
+  for(let h=0;h<q.length;h++){ const li=q[h], x=li%rw, y=(li-x)/rw, L=lay[li];
+    for(let dy=-1;dy<=1;dy++) for(let dx=-1;dx<=1;dx++){ const xx=x+dx,yy=y+dy; if(xx<0||yy<0||xx>=rw||yy>=rh) continue; const n=yy*rw+xx; if(lay[n]===-1){ lay[n]=L+1; q.push(n); } } }
+  for(let h=0;h<q.length;h++){
+    const li=q[h], x=li%rw, y=(li-x)/rw, L=lay[li]; let sr=0,sg=0,sb=0,sw=0;
+    for(let dy=-R;dy<=R;dy++){ const yy=y+dy; if(yy<0||yy>=rh) continue;
+      for(let dx=-R;dx<=R;dx++){ const xx=x+dx; if(xx<0||xx>=rw||(!dx&&!dy)) continue; const nl=lay[yy*rw+xx]; if(nl<0||nl>=L) continue;
+        const w=(nl===0?1:.6)/(dx*dx+dy*dy), i=((yy+y0)*W+(xx+x0))*4; sr+=d[i]*w; sg+=d[i+1]*w; sb+=d[i+2]*w; sw+=w; } }
+    if(sw>0){ const i=((y+y0)*W+(x+x0))*4; d[i]=sr/sw; d[i+1]=sg/sw; d[i+2]=sb/sw; d[i+3]=255; }
+  }
+}
+function cleanRegion(f,mk,mode,thr){
+  f.history.push(new ImageData(new Uint8ClampedArray(f.cur.data),f.cur.width,f.cur.height)); if(f.history.length>15) f.history.shift();
+  const d=f.cur.data, W=f.cur.width, H=f.cur.height;
+  if(mode==='smart'){ smartFill(d,mk,W,H); }
+  else{
+    const st=ringStats(d,mk,W,H);
+    if(mode==='bg' || (mode==='auto' && st.darkShare<0.02)) fillBg(d,mk,W,st.bg);
+    else keepLines(d,mk,W,H,st.bg,thr,mode==='auto');
+  }
+  f.thumb=null;
+}
+
+/* ---------- remembering the logo + finding it again ---------- */
+function grayScaled(src,w,h){
+  const c=document.createElement('canvas'); c.width=w; c.height=h; const x=c.getContext('2d',{willReadFrequently:true});
+  x.imageSmoothingQuality='high'; x.drawImage(src,0,0,w,h); const d=x.getImageData(0,0,w,h).data, g=new Float32Array(w*h);
+  for(let i=0;i<w*h;i++) g[i]=.299*d[i*4]+.587*d[i*4+1]+.114*d[i*4+2]; return g;
+}
+// masked normalised cross-correlation: compares only the logo's own pixels (plus a thin halo)
+function prepT(tw,th,s){
+  const T=grayScaled(logo.patch,tw,th);
+  const c=document.createElement('canvas'); c.width=tw; c.height=th; const x=c.getContext('2d',{willReadFrequently:true});
+  x.drawImage(logo.mask,0,0,tw,th); const a=x.getImageData(0,0,tw,th).data;
+  const idx=[]; for(let i=0;i<tw*th;i++) if(a[i*4+3]>40) idx.push(i);
+  if(idx.length<12) return null;
+  let tm=0; for(const i of idx) tm+=T[i]; tm/=idx.length;
+  const Tm=new Float32Array(idx.length); let tn=0; idx.forEach((i,k)=>{ Tm[k]=T[i]-tm; tn+=Tm[k]*Tm[k]; });
+  tn=Math.sqrt(tn); if(tn<1e-3) return null;
+  return {idx,Tm,tn,tw,th,s};
+}
+function ncc(I,iw,ih,P,xr,yr){
+  const {idx,Tm,tn,tw,th}=P, K=idx.length, off=new Int32Array(K);
+  idx.forEach((i,k)=>{ off[k]=Math.floor(i/tw)*iw+(i%tw); });
+  const xs=Math.max(0,xr?xr[0]:0), xe=Math.min(iw-tw,xr?xr[1]:iw-tw), ys=Math.max(0,yr?yr[0]:0), ye=Math.min(ih-th,yr?yr[1]:ih-th);
+  let best=null;
+  for(let y=ys;y<=ye;y++) for(let x=xs;x<=xe;x++){
+    const o=y*iw+x; let s=0,s2=0,num=0;
+    for(let k=0;k<K;k++){ const v=I[o+off[k]]; s+=v; s2+=v*v; num+=v*Tm[k]; }
+    const v=s2-s*s/K; if(v<K*9) continue;
+    const sc=num/(Math.sqrt(v)*tn); if(!best||sc>best.score) best={score:sc,x,y};
+  }
+  return best;
+}
+function findLogo(f){
+  const W=f.cur.width, H=f.cur.height, src=canvasOf(f.cur);
+  const fc=Math.min(1,360/Math.max(W,H)), iw=Math.max(1,Math.round(W*fc)), ih=Math.max(1,Math.round(H*fc));
+  const I=grayScaled(src,iw,ih);
+  const base=W/logo.srcW; let best=null;
+  for(let k=-5;k<=5;k++){
+    const s=base*Math.pow(1.12,k), tw=Math.round(logo.patch.width*s*fc), th=Math.round(logo.patch.height*s*fc);
+    if(tw<5||th<4||tw>=iw||th>=ih) continue;
+    const P=prepT(tw,th,s); if(!P) continue; const r=ncc(I,iw,ih,P); if(r&&(!best||r.score>best.score)) best={...r,s};
+  }
+  if(!best||best.score<0.45) return null;
+  const I2=grayScaled(src,W,H), span=Math.ceil(1.5/fc)+2; let fine=null;
+  for(const m of [0.95,0.98,1,1.02,1.05]){
+    const s=best.s*m, tw=Math.round(logo.patch.width*s), th=Math.round(logo.patch.height*s);
+    if(tw<5||th<4||tw>=W||th>=H) continue;
+    const P=prepT(tw,th,s); if(!P) continue;
+    const cx=Math.round(best.x/fc), cy=Math.round(best.y/fc);
+    const r=ncc(I2,W,H,P,[cx-span,cx+span],[cy-span,cy+span]); if(r&&(!fine||r.score>fine.score)) fine={...r,s,tw,th};
+  }
+  if(!fine||fine.score<0.65) return null;
+  return fine;
+}
+function autoRemove(f){
+  if(!logo) return false;
+  const hit=findLogo(f);
+  if(!hit){ f.state='nomatch'; return false; }
+  const W=f.cur.width,H=f.cur.height, c=document.createElement('canvas'); c.width=W; c.height=H;
+  const x=c.getContext('2d',{willReadFrequently:true}); x.drawImage(logo.mask,hit.x,hit.y,hit.tw,hit.th);
+  const mk=maskFrom(x.getImageData(0,0,W,H).data,W,H,1);
+  if(!mk){ f.state='nomatch'; return false; }
+  cleanRegion(f,mk,logo.mode,logo.thr); f.state='auto'; return true;
+}
+function rememberLogo(f,mk){
+  // the logo = pixels the cleanup actually changed (walls that were kept are left out)
+  const before=f.history[f.history.length-1].data, after=f.cur.data, W=f.cur.width, H=f.cur.height;
+  let x0=W,y0=H,x1=-1,y1=-1; const ch=new Uint8Array(W*H);
+  for(let y=mk.y0;y<=mk.y1;y++) for(let x=mk.x0;x<=mk.x1;x++){ const p=y*W+x, i=p*4;
+    if(Math.abs(before[i]-after[i])+Math.abs(before[i+1]-after[i+1])+Math.abs(before[i+2]-after[i+2])>30){ ch[p]=1; if(x<x0)x0=x; if(x>x1)x1=x; if(y<y0)y0=y; if(y>y1)y1=y; } }
+  if(x1<0) return;
+  const pad=4; x0=Math.max(0,x0-pad); y0=Math.max(0,y0-pad); x1=Math.min(W-1,x1+pad); y1=Math.min(H-1,y1+pad);
+  const w=x1-x0+1, h=y1-y0+1; if(w<8||h<6) return;
+  const p=document.createElement('canvas'); p.width=w; p.height=h; p.getContext('2d').drawImage(canvasOf(f.history[f.history.length-1]),x0,y0,w,h,0,0,w,h);
+  const m=document.createElement('canvas'); m.width=w; m.height=h; const mx=m.getContext('2d'); const md=mx.createImageData(w,h);
+  for(let y=0;y<h;y++) for(let x=0;x<w;x++){ let on=0;
+    for(let dy=-2;dy<=2&&!on;dy++) for(let dx=-2;dx<=2;dx++){ const xx=x+x0+dx, yy=y+y0+dy; if(xx>=0&&yy>=0&&xx<W&&yy<H&&ch[yy*W+xx]){on=1;break;} }
+    if(on){ const i=(y*w+x)*4; md.data[i]=255; md.data[i+1]=45; md.data[i+2]=122; md.data[i+3]=255; } }
+  mx.putImageData(md,0,0);
+  logo={patch:p,mask:m,srcW:W,mode:modeVal(),thr:+$('thresh').value};
+  store.set('fpc.logo2',JSON.stringify({patch:p.toDataURL('image/png'),mask:m.toDataURL('image/png'),srcW:logo.srcW,mode:logo.mode,thr:logo.thr}));
+  showLogo();
+}
+function showLogo(){ $('logoBox').hidden=!logo; if(logo) $('logoImg').src=logo.patch.toDataURL('image/png'); }
+async function loadLogo(){
+  const raw=store.get('fpc.logo2'); if(!raw) return;
+  try{ const o=JSON.parse(raw); const [p,m]=await Promise.all([loadImg(o.patch),loadImg(o.mask)]); logo={patch:canvasOf(p),mask:canvasOf(m),srcW:o.srcW,mode:o.mode||'auto',thr:o.thr||150}; showLogo(); }
+  catch(e){ store.del('fpc.logo2'); }
+}
+$('forget').onclick=()=>{ logo=null; store.del('fpc.logo2'); showLogo(); toast('Logo forgotten'); };
+$('rerun').onclick=()=>{ const f=files[cur]; if(!f) return; if(autoRemove(f)){ refreshCurrent(); toast('Found and removed it'); } else { renderList(); describe(f); toast('Couldn’t find the remembered logo on this plan'); } };
+
+/* ---------- actions ---------- */
+function apply(){
+  if(!hasMask||cur<0) return;
+  const f=files[cur], mk=maskFrom(kctx.getImageData(0,0,mask.width,mask.height).data,mask.width,mask.height,1); if(!mk) return;
+  cleanRegion(f,mk,modeVal(),+$('thresh').value); f.state='manual';
+  if($('remember').checked && !f.example) rememberLogo(f,mk);
+  clearMask(); refreshCurrent();
+  const pending=files.filter(x=>x!==f && !x.example && x.state!=='auto' && !x.history.length);
+  if(logo && pending.length){ let n=0; pending.forEach(x=>{ if(autoRemove(x)) n++; }); renderList(); if(n) toast('Also removed it from '+n+' other plan'+(n>1?'s':'')); }
+  else toast('Logo removed. Hold “before” to compare.');
+}
+function applyAll(){
+  if(!hasMask) return; let n=0;
+  for(const f of files){ const W=f.cur.width,H=f.cur.height, c=document.createElement('canvas'); c.width=W; c.height=H; c.getContext('2d').drawImage(mask,0,0,W,H);
+    const mk=maskFrom(c.getContext('2d').getImageData(0,0,W,H).data,W,H,1); if(mk){ cleanRegion(f,mk,modeVal(),+$('thresh').value); f.state='manual'; n++; } }
+  clearMask(); refreshCurrent(); toast('Cleaned '+n+' plans. Check each one before downloading.');
+}
+$('apply').onclick=apply; $('applyAll').onclick=applyAll;
+$('undo').onclick=()=>{ const f=files[cur]; if(!f||!f.history.length) return; f.cur=f.history.pop(); if(!f.history.length) f.state='new'; refreshCurrent(); };
+$('reset').onclick=()=>{ const f=files[cur]; if(!f) return; f.history=[]; f.state='new'; f.cur=new ImageData(new Uint8ClampedArray(f.orig.data),f.orig.width,f.orig.height); refreshCurrent(); };
+const cmp=$('compare');
+cmp.addEventListener('pointerdown',()=>{ const f=files[cur]; if(f) mctx.putImageData(f.orig,0,0); });
+['pointerup','pointerleave','pointercancel'].forEach(ev=>cmp.addEventListener(ev,()=>{ const f=files[cur]; if(f) mctx.putImageData(f.cur,0,0); }));
+
+/* ---------- export ---------- */
+function outInfo(f){ const t=/jpe?g/.test(f.type)?['image/jpeg','jpg']:/webp/.test(f.type)?['image/webp','webp']:['image/png','png']; return {mime:t[0],name:(f.name.replace(/\.[^.]+$/,'')||'plan')+'-clean.'+t[1]}; }
+function toBlob(f){ const o=outInfo(f); return new Promise(res=>canvasOf(f.cur).toBlob(b=>res(b),o.mime,.95)); }
+$('dlOne').onclick=async()=>{ const f=files[cur]; if(f) saveBlob(await toBlob(f),outInfo(f).name); };
+$('dlAll').onclick=async()=>{
+  const list=files.filter(f=>!f.example); if(!list.length) return;
+  if(!(await loadZip())){ toast('Zip isn’t available right now. Download plans one by one.'); return; }
+  const zip=new JSZip(), used=new Set();
+  for(const f of list){ let n=outInfo(f).name,k=2; while(used.has(n)) n=n.replace(/(\.\w+)$/,'-'+(k++)+'$1'); used.add(n); zip.file(n,await toBlob(f)); }
+  saveBlob(new Blob([await zip.generateAsync({type:'blob'})],{type:'application/zip'}),'clean-floor-plans.zip');
+};
+
+/* ---------- keyboard ---------- */
+document.addEventListener('keydown',e=>{
+  if(e.target.matches && e.target.matches('input')) return;
+  if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'){ e.preventDefault(); $('undo').click(); return; }
+  if(e.key==='b'||e.key==='B') setTool('brush'); else if(e.key==='r'||e.key==='R') setTool('box');
+  else if(e.key==='Enter') apply(); else if(e.key==='[') setSize(size-4); else if(e.key===']') setSize(size+4);
+});
+
+/* ---------- example plan ---------- */
+function examplePlan(){
+  const W=1200,H=820,c=document.createElement('canvas'); c.width=W; c.height=H; const x=c.getContext('2d');
+  x.fillStyle='#fff'; x.fillRect(0,0,W,H); x.strokeStyle='#1b1b1b'; x.lineCap='square';
+  const wall=(a,b,cc,d,w=9)=>{ x.lineWidth=w; x.beginPath(); x.moveTo(a,b); x.lineTo(cc,d); x.stroke(); };
+  wall(80,80,1120,80); wall(1120,80,1120,740); wall(1120,740,80,740); wall(80,740,80,80);
+  wall(460,80,460,420); wall(80,420,330,420); wall(400,420,620,420); wall(720,80,720,300); wall(720,300,1120,300);
+  wall(820,300,820,740); wall(620,420,620,740,6); wall(80,600,260,600,6); wall(330,600,620,600,6);
+  x.lineWidth=2; x.strokeStyle='#444';
+  [[330,420,70,0],[620,600,70,1],[720,300,70,1]].forEach(([a,b,r,f])=>{ x.beginPath(); x.arc(a,b,r,f?Math.PI/2:Math.PI,f?Math.PI:Math.PI*1.5); x.stroke(); });
+  x.fillStyle='#1b1b1b'; x.textAlign='center';
+  const lab=(t,s,a,b)=>{ x.font='600 20px Arial'; x.fillText(t,a,b); x.font='16px Arial'; x.fillText(s,a,b+24); };
+  lab('BEDROOM 1',"11'0\" × 12'6\"",270,240); lab('LIVING / DINING',"18'6\" × 11'0\"",590,230); lab('BEDROOM 2',"12'0\" × 10'6\"",920,180);
+  lab('KITCHEN',"8'0\" × 9'6\"",170,510); lab('TOILET',"5'0\" × 7'6\"",170,680); lab('BEDROOM 3',"10'6\" × 11'0\"",720,560);
+  lab('BALCONY',"4'6\" × 12'0\"",970,520); lab('FOYER','',470,520);
+  x.font='15px Arial'; x.fillStyle='#333'; x.fillText('3 BHK · Super area 1,650 sq ft · Carpet area 1,180 sq ft',600,790);
+  x.save(); x.translate(600,410); x.rotate(-0.28); x.globalAlpha=.22; x.fillStyle='#2a6fd6'; x.font='800 96px Arial'; x.fillText('YOUR LOGO',0,30); x.restore();
+  x.fillStyle='#e8552f'; x.fillRect(965,690,120,36); x.fillStyle='#fff'; x.font='700 18px Arial'; x.fillText('LOGO',1025,715);
+  const d=x.getImageData(0,0,W,H);
+  files.push({name:'example-3bhk-plan.png',type:'image/png',orig:d,cur:new ImageData(new Uint8ClampedArray(d.data),W,H),history:[],state:'new',example:true});
+  select(0);
+}
+
+examplePlan();
+loadLogo();
+}catch(e){ fail(e); }
+})();
+</script>
